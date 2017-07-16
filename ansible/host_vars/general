@@ -1,0 +1,16 @@
+---
+
+docker_network_name: dev_tools
+
+jenkins_volume: jenkins_data
+jenkins_volume_mount: /var/jenkins_home
+
+sonarqube_db_docker_image: local/postgres_sonarqube
+sonarqube_db_host_name: sonarqube_db
+sonarqube_db_user: sonarqube
+
+artifactory_volume: artifactory_data
+artifactory_db_docker_image: local/postgres-artifactory
+artifactory_volume_mount: /var/opt/jfrog/artifactory
+artifactory_db_host_name: artifactory_db
+artifactory_db_user: artifactory

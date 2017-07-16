@@ -1,0 +1,134 @@
+---
+- name: Dev tools
+  hosts: all
+  user: root
+  become: yes
+  become_method: sudo
+
+  vars_files:
+  - host_vars/general
+  - host_vars/secrets
+
+  tasks:
+  - name: Start Docker service
+    service:
+      name: docker
+      state: started
+    
+  - name: Create Docker network
+    docker_network:
+      name: "{{ docker_network_name }}"
+
+# TODO external Docker registry for images built here? Or assume VM is long-lived?
+
+##########################################################################
+#
+# Jenkins
+#
+##########################################################################
+
+  - name: Create Jenkins data container
+    docker_container:
+      name: "{{ jenkins_volume }}"
+      image: busybox
+      volumes:
+        - "{{ jenkins_volume_mount }}"
+      # Set appropriate permissions on volume so Jenkins user can use it
+      # Pretty sure there must be a better way
+      command: "chown -R 1000:1000 {{ jenkins_volume_mount }}"
+
+  - name: Create Jenkins
+    docker_container:
+      name: jenkins
+      hostname: jenkins
+      image: jenkins
+      published_ports:
+        - "8080:8080"
+      volumes_from:
+        - "{{ jenkins_volume }}"
+      networks:
+        - name: "{{ docker_network_name }}"
+
+# TODO own Jenkins image for standardising plugin set
+
+# TODO slaves
+
+##########################################################################
+#
+# SonarQube
+#
+##########################################################################
+
+  - name: Build image for SonarQube database
+    docker_image:
+      path: ./docker/postgres-sonarqube
+      name: "{{ sonarqube_db_docker_image }}"
+
+  - name: Create SonarQube database container
+    docker_container:
+      name: sonarqube_db
+      hostname: "{{ sonarqube_db_host_name }}"
+      image: "{{ sonarqube_db_docker_image }}"
+      networks:
+        - name: "{{ docker_network_name }}"
+
+  - name: Create SonarQube
+    docker_container:
+      name: sonarqube
+      hostname: sonarqube
+      image: sonarqube:6.4
+      published_ports:
+        - "9000:9000"
+        - "9092:9092"
+      networks:
+        - name: "{{ docker_network_name }}"
+      env:
+        SONARQUBE_JDBC_USERNAME: "{{ sonarqube_db_user }}"
+        SONARQUBE_JDBC_PASSWORD: "{{ sonarqube_db_pwd }}"
+        SONARQUBE_JDBC_URL: "jdbc:postgresql://{{ sonarqube_db_host_name }}/sonarqube"
+
+##########################################################################
+#
+# Artifactory OSS
+#
+##########################################################################
+
+  - name: Create Artifactory data container
+    docker_container:
+      name: "{{ artifactory_volume }}"
+      image: busybox
+      volumes:
+        - "{{ artifactory_volume_mount }}"
+      # No need to set permissions this time (cf. {{ jenkins_volume }}) because
+      # Artifactory Docker image deals with this itself
+
+  - name: Build image for Artifactory database
+    docker_image:
+      path: ./docker/postgres-artifactory
+      name: "{{ artifactory_db_docker_image }}"
+
+  - name: Create Artifactory database container
+    docker_container:
+      name: artifactory_db
+      hostname: "{{ artifactory_db_host_name }}"
+      image: "{{ artifactory_db_docker_image }}"
+      networks:
+        - name: "{{ docker_network_name }}"
+
+  - name: Create Artifactory
+    docker_container:
+      name: artifactory
+      hostname: artifactory
+      image: docker.bintray.io/jfrog/artifactory-oss:latest
+      published_ports:
+        - "8081:8081"
+      volumes_from:
+        - "{{ artifactory_volume }}"
+      networks:
+        - name: "{{ docker_network_name }}"
+      env:
+        DB_TYPE: "postgresql"
+        DB_HOST: "{{ artifactory_db_host_name }}"
+        DB_PORT: "5432"
+        DB_USER: "{{ artifactory_db_user }}"
+        DB_PASSWORD: "{{ artifactory_db_pwd }}"
